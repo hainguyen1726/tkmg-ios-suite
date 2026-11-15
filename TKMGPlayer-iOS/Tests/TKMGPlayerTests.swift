@@ -47,4 +47,27 @@ final class TKMGPlayerTests: XCTestCase {
         XCTAssertEqual(decoded.items.count, 1)
         XCTAssertEqual(decoded.items[0].index, 1)
     }
+
+    func testAppUpdateLogicDetectsNewerPlayerIOSBuild() throws {
+        let json = """
+        {
+          "apps": [
+            {
+              "id": "tkmg-player-ios",
+              "name": "TKMG Player (iPhone)",
+              "version": "1.3.0",
+              "buildCode": 4,
+              "apkUrl": "downloads/01-tkmg-player-ios-v1.3.ipa",
+              "apkFileName": "01-tkmg-player-ios-v1.3.ipa",
+              "apkSizeLabel": "440 KB",
+              "whatsNew": "Cập nhật mới"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let parsed = AppUpdateLogic.parseAppEntry(from: json, appId: "tkmg-player-ios")
+        XCTAssertNotNil(parsed)
+        XCTAssertTrue(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.2.0", localBuildCode: 3))
+        XCTAssertFalse(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.3.0", localBuildCode: 4))
+    }
 }

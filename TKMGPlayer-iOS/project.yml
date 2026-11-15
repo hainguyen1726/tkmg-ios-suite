@@ -12,8 +12,8 @@ settings:
     SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Vendor/TkmgCore"
     LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Vendor/TkmgCore/$(PLATFORM_NAME)"
     OTHER_LDFLAGS: "$(inherited) -ltkmg_core"
-    MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "3"
 
 targets:
   TKMGPlayer:
@@ -25,8 +25,8 @@ targets:
       path: Resources/Info.plist
       properties:
         CFBundleDisplayName: TKMG Player
-        CFBundleShortVersionString: "1.1.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "1.2.0"
+        CFBundleVersion: "3"
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: ""

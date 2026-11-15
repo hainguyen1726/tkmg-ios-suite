@@ -92,7 +92,7 @@ jobs:
             ls -lh "dist/$OUT_IPA"
           }
 
-          build_unsigned_ipa "TKMGPlayer-iOS" "TKMGPlayer" "TKMGPlayer" "01-tkmg-player-ios-v1.1.ipa"
+          build_unsigned_ipa "TKMGPlayer-iOS" "TKMGPlayer" "TKMGPlayer" "01-tkmg-player-ios-v1.2.ipa"
           build_unsigned_ipa "TKMGScanner-iOS" "TKMGScanner" "TKMGScanner" "02-tkmg-scanner-ios-v1.1.ipa"
 
       - name: Upload IPA Artifacts

@@ -3,6 +3,7 @@ import SwiftUI
 struct LibraryTabView: View {
     @EnvironmentObject var library: MediaLibraryStore
     @EnvironmentObject var playerManager: AudioPlayerManager
+    @EnvironmentObject var updateChecker: AppUpdateChecker
 
     @State private var searchText = ""
     @State private var activeFilter: MediaFilter = .all
@@ -20,6 +21,11 @@ struct LibraryTabView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let pending = updateChecker.bannerUpdate {
+                    UpdateAvailableBannerView(update: pending) {
+                        updateChecker.alertUpdate = pending
+                    }
+                }
                 // Filter Chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -125,6 +131,16 @@ struct LibraryTabView: View {
                             get: { library.preferFileName },
                             set: { library.preferFileName = $0; library.saveState() }
                         ))
+                        Divider()
+                        Button {
+                            Task { await updateChecker.checkForUpdates(manual: true) }
+                        } label: {
+                            Label(
+                                updateChecker.isChecking ? "Đang kiểm tra..." : "Kiểm tra bản mới (v\(updateChecker.localVersion))",
+                                systemImage: "arrow.triangle.2.circlepath"
+                            )
+                        }
+                        .disabled(updateChecker.isChecking)
                     } label: {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }

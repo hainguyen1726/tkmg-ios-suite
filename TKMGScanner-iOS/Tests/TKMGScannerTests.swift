@@ -42,4 +42,27 @@ final class TKMGScannerTests: XCTestCase {
         XCTAssertEqual(idCardA4.cgImage?.width, 1240)
         XCTAssertEqual(idCardA4.cgImage?.height, 1754)
     }
+
+    func testAppUpdateLogicDetectsNewerScannerIOSBuild() throws {
+        let json = """
+        {
+          "apps": [
+            {
+              "id": "tkmg-scanner-ios",
+              "name": "TKMG Scanner (iPhone)",
+              "version": "1.2.0",
+              "buildCode": 3,
+              "apkUrl": "downloads/02-tkmg-scanner-ios-v1.2.ipa",
+              "apkFileName": "02-tkmg-scanner-ios-v1.2.ipa",
+              "apkSizeLabel": "320 KB",
+              "whatsNew": "Cải tiến"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let parsed = AppUpdateLogic.parseAppEntry(from: json, appId: "tkmg-scanner-ios")
+        XCTAssertNotNil(parsed)
+        XCTAssertTrue(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.1.0", localBuildCode: 2))
+        XCTAssertFalse(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.2.0", localBuildCode: 3))
+    }
 }

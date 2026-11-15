@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var store: ScanStore
+    @EnvironmentObject var updateChecker: AppUpdateChecker
 
     @State private var selectedFolderId = "all"
     @State private var searchQuery = ""
@@ -22,6 +23,11 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
+                if let pending = updateChecker.bannerUpdate {
+                    UpdateAvailableBannerView(update: pending) {
+                        updateChecker.alertUpdate = pending
+                    }
+                }
                 // Folder Chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -134,6 +140,16 @@ struct ContentView: View {
                                 Text(mode.label).tag(mode)
                             }
                         }
+                        Divider()
+                        Button {
+                            Task { await updateChecker.checkForUpdates(manual: true) }
+                        } label: {
+                            Label(
+                                updateChecker.isChecking ? "Đang kiểm tra..." : "Kiểm tra bản mới (v\(updateChecker.localVersion))",
+                                systemImage: "arrow.triangle.2.circlepath"
+                            )
+                        }
+                        .disabled(updateChecker.isChecking)
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                     }
