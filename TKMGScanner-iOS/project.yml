@@ -1,0 +1,52 @@
+name: TKMGScanner
+options:
+  bundleIdPrefix: com.tkmg
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_BITCODE: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Vendor/TkmgCore"
+    LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Vendor/TkmgCore/$(PLATFORM_NAME)"
+    OTHER_LDFLAGS: "$(inherited) -ltkmg_core"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  TKMGScanner:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: TKMG Scanner
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+        NSCameraUsageDescription: "TKMG Scanner cần quyền Camera để chụp và tự căn góc tài liệu, hợp đồng, giấy tờ."
+        NSPhotoLibraryUsageDescription: "TKMG Scanner cần truy cập Thư viện ảnh để chọn ảnh tài liệu cần xử lý."
+        NSPhotoLibraryAddUsageDescription: "TKMG Scanner cần quyền lưu trang scan sắc nét vào Thư viện ảnh."
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tkmg.scanner
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+
+  TKMGScannerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: TKMGScanner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tkmg.scanner.tests

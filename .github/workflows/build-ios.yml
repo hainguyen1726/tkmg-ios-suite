@@ -1,0 +1,106 @@
+name: Build TKMG iOS Apps (SwiftUI + Rust ARM64)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build & Test iOS IPAs
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain & iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tkmg-rust-core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('tkmg-rust-core/Cargo.lock', 'tkmg-rust-core/src/**') }}
+
+      - name: Build Rust Core staticlibs & run cargo tests
+        run: |
+          chmod +x tkmg-rust-core/build-ios.sh
+          bash tkmg-rust-core/build-ios.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Select Simulator Destination
+        id: sim
+        run: |
+          SIM_ID=$(xcrun simctl list devices available | grep -m1 -E "iPhone (16|15|14)" | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/')
+          echo "SIM_ID=$SIM_ID"
+          echo "dest=platform=iOS Simulator,id=$SIM_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Xcode Projects
+        run: |
+          (cd TKMGPlayer-iOS && xcodegen generate)
+          (cd TKMGScanner-iOS && xcodegen generate)
+
+      - name: Run iOS Unit Tests (Swift + Rust C-FFI)
+        run: |
+          xcodebuild test \
+            -project TKMGPlayer-iOS/TKMGPlayer.xcodeproj \
+            -scheme TKMGPlayer \
+            -destination "${{ steps.sim.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+          xcodebuild test \
+            -project TKMGScanner-iOS/TKMGScanner.xcodeproj \
+            -scheme TKMGScanner \
+            -destination "${{ steps.sim.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build Release Archives & Unsigned IPAs
+        run: |
+          mkdir -p dist
+
+          build_unsigned_ipa() {
+            local DIR="$1"
+            local PROJ="$2"
+            local SCHEME="$3"
+            local OUT_IPA="$4"
+
+            xcodebuild archive \
+              -project "$DIR/$PROJ.xcodeproj" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -archivePath "build/$SCHEME.xcarchive" \
+              -destination "generic/platform=iOS" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+
+            mkdir -p "build/$SCHEME-pkg/Payload"
+            cp -R "build/$SCHEME.xcarchive/Products/Applications/"*.app "build/$SCHEME-pkg/Payload/"
+            (cd "build/$SCHEME-pkg" && zip -qry "../../dist/$OUT_IPA" Payload)
+            ls -lh "dist/$OUT_IPA"
+          }
+
+          build_unsigned_ipa "TKMGPlayer-iOS" "TKMGPlayer" "TKMGPlayer" "01-tkmg-player-ios-v1.0.ipa"
+          build_unsigned_ipa "TKMGScanner-iOS" "TKMGScanner" "TKMGScanner" "02-tkmg-scanner-ios-v1.0.ipa"
+
+      - name: Upload IPA Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tkmg-ios-ipas
+          path: dist/*.ipa
+          retention-days: 90
+
+      - name: Attach IPAs to GitHub Release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.ipa

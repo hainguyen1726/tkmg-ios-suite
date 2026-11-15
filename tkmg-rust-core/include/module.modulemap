@@ -1,0 +1,4 @@
+module TkmgCore {
+    header "tkmg_core.h"
+    export *
+}

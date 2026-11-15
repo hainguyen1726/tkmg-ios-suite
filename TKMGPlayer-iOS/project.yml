@@ -1,0 +1,61 @@
+name: TKMGPlayer
+options:
+  bundleIdPrefix: com.tkmg
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_BITCODE: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Vendor/TkmgCore"
+    LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Vendor/TkmgCore/$(PLATFORM_NAME)"
+    OTHER_LDFLAGS: "$(inherited) -ltkmg_core"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  TKMGPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: TKMG Player
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+        UIBackgroundModes:
+          - audio
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportsDocumentBrowser: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Audio and Video Media
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.audio
+              - public.mp3
+              - public.mpeg-4-audio
+              - public.movie
+              - public.mpeg-4
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tkmg.player
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+
+  TKMGPlayerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: TKMGPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tkmg.player.tests
