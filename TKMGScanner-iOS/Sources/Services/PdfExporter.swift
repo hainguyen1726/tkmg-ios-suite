@@ -62,6 +62,47 @@ enum PdfExporter {
         return outURL
     }
 
+    static func exportImageFiles(
+        pageImages: [UIImage],
+        fileName: String,
+        format: ImageExportFormat,
+        asLongImage: Bool
+    ) throws -> [URL] {
+        let safeBase = fileName
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = safeBase.isEmpty ? "TKMG_Scan" : safeBase
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tkmg_img_exports", isDirectory: true)
+        try? FileManager.default.removeItem(at: tmpDir)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+
+        func encodeImage(_ img: UIImage) -> Data? {
+            switch format {
+            case .jpeg: return img.jpegData(compressionQuality: 0.92)
+            case .png: return img.pngData()
+            }
+        }
+
+        if asLongImage, pageImages.count > 1, let longImg = RustImageProcessor.composeLongImage(pages: pageImages),
+           let data = encodeImage(longImg) {
+            let url = tmpDir.appendingPathComponent("\(prefix)_Dai.\(format.fileExtension)")
+            try data.write(to: url, options: .atomic)
+            return [url]
+        }
+
+        var urls: [URL] = []
+        for (idx, img) in pageImages.enumerated() {
+            if let data = encodeImage(img) {
+                let url = tmpDir.appendingPathComponent(String(format: "%@_Trang_%02d.%@", prefix, idx + 1, format.fileExtension))
+                try data.write(to: url, options: .atomic)
+                urls.append(url)
+            }
+        }
+        return urls
+    }
+
     private static func prepareJPEGImage(_ image: UIImage, maxEdge: CGFloat, compression: CGFloat) -> UIImage {
         let scaled = RustImageProcessor.normalizedAndRotated(image: image, rotationDegrees: 0, maxEdgePx: maxEdge)
         guard let jpegData = scaled.jpegData(compressionQuality: compression),

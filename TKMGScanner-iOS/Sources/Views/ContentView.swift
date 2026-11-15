@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var searchQuery = ""
     @State private var sortOrder: DocumentSortOrder = .updatedDesc
     @State private var showCamera = false
+    @State private var showIdCardComposer = false
     @State private var showNoCameraAlert = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showNewFolderAlert = false
@@ -86,6 +87,13 @@ struct ContentView: View {
                             }
                             .buttonStyle(.bordered)
                         }
+                        Button {
+                            showIdCardComposer = true
+                        } label: {
+                            Label("Ghép CCCD 2 mặt vào A4", systemImage: "person.text.rectangle.fill")
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.bordered)
                         Spacer()
                     }
                 } else {
@@ -132,6 +140,12 @@ struct ContentView: View {
                 }
 
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        showIdCardComposer = true
+                    } label: {
+                        Image(systemName: "person.text.rectangle")
+                    }
+
                     PhotosPicker(
                         selection: $selectedPhotoItems,
                         maxSelectionCount: 20,
@@ -162,6 +176,12 @@ struct ContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                 }
+            }
+            .sheet(isPresented: $showIdCardComposer) {
+                IdCardComposerView(onCreated: { doc in
+                    navigationPath.append(doc.id)
+                })
+                .environmentObject(store)
             }
             .fullScreenCover(isPresented: $showCamera) {
                 DocumentCameraWrapper(

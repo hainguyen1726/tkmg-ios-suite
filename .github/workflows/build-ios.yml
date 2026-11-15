@@ -93,7 +93,7 @@ jobs:
           }
 
           build_unsigned_ipa "TKMGPlayer-iOS" "TKMGPlayer" "TKMGPlayer" "01-tkmg-player-ios-v1.1.ipa"
-          build_unsigned_ipa "TKMGScanner-iOS" "TKMGScanner" "TKMGScanner" "02-tkmg-scanner-ios-v1.0.ipa"
+          build_unsigned_ipa "TKMGScanner-iOS" "TKMGScanner" "TKMGScanner" "02-tkmg-scanner-ios-v1.1.ipa"
 
       - name: Upload IPA Artifacts
         uses: actions/upload-artifact@v4

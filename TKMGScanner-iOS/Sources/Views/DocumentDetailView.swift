@@ -6,11 +6,12 @@ struct DocumentDetailView: View {
     let documentID: String
 
     @State private var showCameraAdd = false
+    @State private var showIdCardComposer = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showExportSheet = false
     @State private var showRenameAlert = false
     @State private var renameText = ""
-    @State private var shareURL: URL?
+    @State private var shareURLs: [URL] = []
 
     private var document: ScannedDocument? {
         store.documents.first { $0.id == documentID }
@@ -99,6 +100,12 @@ struct DocumentDetailView: View {
                             }
 
                             Button {
+                                showIdCardComposer = true
+                            } label: {
+                                Label("Ghép CCCD 2 mặt (A4)", systemImage: "person.text.rectangle")
+                            }
+
+                            Button {
                                 Task { await store.savePagesToPhotos(doc) }
                             } label: {
                                 Label("Lưu tất cả ảnh JPEG vào Ảnh", systemImage: "square.and.arrow.down")
@@ -166,21 +173,25 @@ struct DocumentDetailView: View {
                         _ = await store.addScannedDocument(images: imgs, intoDocumentID: doc.id)
                     }
                 }
+                .sheet(isPresented: $showIdCardComposer) {
+                    IdCardComposerView(intoDocumentID: doc.id)
+                        .environmentObject(store)
+                }
                 .sheet(isPresented: $showExportSheet) {
-                    ExportPdfSheet(document: doc) { exportedURL in
+                    ExportPdfSheet(document: doc) { exportedURLs in
                         showExportSheet = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                            shareURL = exportedURL
+                            shareURLs = exportedURLs
                         }
                     }
                     .environmentObject(store)
                 }
                 .sheet(isPresented: Binding(
-                    get: { shareURL != nil },
-                    set: { if !$0 { shareURL = nil } }
+                    get: { !shareURLs.isEmpty },
+                    set: { if !$0 { shareURLs = [] } }
                 )) {
-                    if let url = shareURL {
-                        ShareSheet(items: [url])
+                    if !shareURLs.isEmpty {
+                        ShareSheet(items: shareURLs)
                     }
                 }
                 .alert("Đổi tên tài liệu", isPresented: $showRenameAlert) {
@@ -219,65 +230,181 @@ struct ExportPdfSheet: View {
     @EnvironmentObject var store: ScanStore
     @Environment(\.dismiss) var dismiss
     let document: ScannedDocument
-    var onExported: (URL) -> Void
+    var onExported: ([URL]) -> Void
 
+    @State private var exportMode: DocumentExportMode = .pdf
     @State private var pageSize: PdfPageSize = .a4
     @State private var quality: PdfQuality = .standard
+    @State private var imageFormat: ImageExportFormat = .jpeg
+    @State private var asLongImage = false
+    @State private var selectedPageIDs: Set<String> = []
     @State private var isExporting = false
+
+    private var selectedImages: [UIImage] {
+        let chosen = document.pages.filter { selectedPageIDs.isEmpty || selectedPageIDs.contains($0.id) }
+        return chosen.compactMap { store.renderedImage(for: $0) }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Khổ trang PDF") {
-                    Picker("Khổ giấy", selection: $pageSize) {
-                        ForEach(PdfPageSize.allCases) { size in
-                            VStack(alignment: .leading) {
-                                Text(size.rawValue)
-                                Text(size.subtitle).font(.caption).foregroundColor(.secondary)
-                            }.tag(size)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-
-                Section("Chất lượng & Dung lượng") {
-                    Picker("Mức nén", selection: $quality) {
-                        ForEach(PdfQuality.allCases) { q in
-                            Text(q.rawValue).tag(q)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-
-                Section {
-                    Button {
-                        runExport()
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isExporting {
-                                ProgressView()
-                            } else {
-                                Label("Xuất PDF & Chia sẻ (\(document.pages.count) trang)", systemImage: "square.and.arrow.up")
-                                    .fontWeight(.bold)
+                if document.pages.count > 1 {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Array(document.pages.enumerated()), id: \.element.id) { idx, page in
+                                    let selected = selectedPageIDs.contains(page.id)
+                                    Button {
+                                        if selected && selectedPageIDs.count > 1 {
+                                            selectedPageIDs.remove(page.id)
+                                        } else {
+                                            selectedPageIDs.insert(page.id)
+                                        }
+                                    } label: {
+                                        Text("Trang \(idx + 1)")
+                                            .font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(selected ? Color.accentColor : Color.gray.opacity(0.2))
+                                            .foregroundColor(selected ? .black : .primary)
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .padding(.vertical, 4)
+                        }
+                    } header: {
+                        HStack {
+                            Text("Chọn trang (\(selectedPageIDs.count)/\(document.pages.count))")
                             Spacer()
+                            Button(selectedPageIDs.count == document.pages.count ? "Chỉ giữ Tr.1" : "Chọn tất cả") {
+                                if selectedPageIDs.count == document.pages.count, let first = document.pages.first {
+                                    selectedPageIDs = [first.id]
+                                } else {
+                                    selectedPageIDs = Set(document.pages.map { $0.id })
+                                }
+                            }
+                            .font(.caption)
                         }
                     }
-                    .disabled(isExporting || document.pages.isEmpty)
+                }
+
+                Section("Định dạng xuất") {
+                    Picker("Chế độ", selection: $exportMode) {
+                        ForEach(DocumentExportMode.allCases) { m in
+                            Text(m.rawValue).tag(m)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                if exportMode == .pdf {
+                    Section("Khổ trang PDF") {
+                        Picker("Khổ giấy", selection: $pageSize) {
+                            ForEach(PdfPageSize.allCases) { size in
+                                VStack(alignment: .leading) {
+                                    Text(size.rawValue)
+                                    Text(size.subtitle).font(.caption).foregroundColor(.secondary)
+                                }.tag(size)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+
+                    Section("Chất lượng & Dung lượng") {
+                        Picker("Mức nén", selection: $quality) {
+                            ForEach(PdfQuality.allCases) { q in
+                                Text(q.rawValue).tag(q)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+
+                    Section {
+                        Button {
+                            runPdfExport()
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isExporting {
+                                    ProgressView()
+                                } else {
+                                    Label("Xuất PDF & Chia sẻ (\(selectedImages.count) trang)", systemImage: "square.and.arrow.up")
+                                        .fontWeight(.bold)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .disabled(isExporting || selectedImages.isEmpty)
+                    }
+                } else {
+                    Section("Tùy chọn file Ảnh") {
+                        Picker("Định dạng ảnh", selection: $imageFormat) {
+                            ForEach(ImageExportFormat.allCases) { fmt in
+                                Text(fmt.rawValue).tag(fmt)
+                            }
+                        }
+                        .pickerStyle(.inline)
+
+                        if selectedImages.count > 1 {
+                            Toggle("Ghép \(selectedImages.count) trang thành 1 Ảnh dài", isOn: $asLongImage)
+                        }
+                    }
+
+                    Section {
+                        Button {
+                            runImageShareExport()
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isExporting {
+                                    ProgressView()
+                                } else {
+                                    Label("Chia sẻ Ảnh / Lưu Tệp (Zalo, Files...)", systemImage: "square.and.arrow.up")
+                                        .fontWeight(.bold)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .disabled(isExporting || selectedImages.isEmpty)
+
+                        Button {
+                            let imgs = selectedImages
+                            let fmt = imageFormat
+                            let longMode = asLongImage
+                            Task {
+                                await store.saveCustomImagesToPhotos(imgs, format: fmt, asLongImage: longMode)
+                                dismiss()
+                            }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Label("Lưu vào Thư viện Ảnh iPhone", systemImage: "photo.on.rectangle")
+                                    .fontWeight(.semibold)
+                                Spacer()
+                            }
+                        }
+                        .disabled(isExporting || selectedImages.isEmpty)
+                    }
                 }
             }
-            .navigationTitle("Xuất PDF sạch (Không Watermark)")
+            .navigationTitle("Xuất & Chia sẻ (Không Watermark)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 Button("Đóng") { dismiss() }
             }
+            .onAppear {
+                if selectedPageIDs.isEmpty {
+                    selectedPageIDs = Set(document.pages.map { $0.id })
+                }
+            }
         }
     }
 
-    private func runExport() {
+    private func runPdfExport() {
         isExporting = true
-        let images = document.pages.compactMap { store.renderedImage(for: $0) }
+        let images = selectedImages
         let title = document.title
         let size = pageSize
         let qual = quality
@@ -286,7 +413,29 @@ struct ExportPdfSheet: View {
             await MainActor.run {
                 isExporting = false
                 if let url {
-                    onExported(url)
+                    onExported([url])
+                }
+            }
+        }
+    }
+
+    private func runImageShareExport() {
+        isExporting = true
+        let images = selectedImages
+        let title = document.title
+        let fmt = imageFormat
+        let longMode = asLongImage
+        Task.detached(priority: .userInitiated) {
+            let urls = (try? PdfExporter.exportImageFiles(
+                pageImages: images,
+                fileName: title,
+                format: fmt,
+                asLongImage: longMode
+            )) ?? []
+            await MainActor.run {
+                isExporting = false
+                if !urls.isEmpty {
+                    onExported(urls)
                 }
             }
         }

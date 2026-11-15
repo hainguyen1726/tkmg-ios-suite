@@ -76,6 +76,27 @@ enum DocumentSortOrder: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ImageExportFormat: String, CaseIterable, Identifiable {
+    case jpeg = "JPEG (Nhẹ, gửi nhanh)"
+    case png = "PNG (Sắc nét không nén)"
+
+    var id: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .jpeg: return "jpg"
+        case .png: return "png"
+        }
+    }
+}
+
+enum DocumentExportMode: String, CaseIterable, Identifiable {
+    case pdf = "Xuất PDF"
+    case images = "Xuất Ảnh"
+
+    var id: String { rawValue }
+}
+
 struct ScanFolder: Identifiable, Codable, Hashable {
     var id: String
     var name: String

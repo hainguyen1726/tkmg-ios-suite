@@ -24,6 +24,25 @@ int32_t tkmg_natural_compare_utf8(
     size_t b_len
 );
 
+int32_t tkmg_estimate_quad_size(
+    int32_t src_w,
+    int32_t src_h,
+    const float *quad_norm_ptr,
+    int32_t max_edge,
+    int32_t *out_w,
+    int32_t *out_h
+);
+
+int32_t tkmg_perspective_warp_argb(
+    const uint32_t *src_ptr,
+    int32_t src_w,
+    int32_t src_h,
+    const float *quad_norm_ptr,
+    uint32_t *dst_ptr,
+    int32_t dst_w,
+    int32_t dst_h
+);
+
 #ifdef __cplusplus
 }
 #endif

@@ -218,10 +218,132 @@ final class ScanStore: ObservableObject {
               let pIdx = documents[dIdx].pages.firstIndex(where: { $0.id == pageID }) else { return }
         let page = documents[dIdx].pages[pIdx]
         try? fm.removeItem(at: pagesDir.appendingPathComponent(page.originalFileName))
+        try? fm.removeItem(at: pagesDir.appendingPathComponent(rawBackupName(for: page.originalFileName)))
         try? fm.removeItem(at: pagesDir.appendingPathComponent(page.renderedFileName))
         documents[dIdx].pages.remove(at: pIdx)
         documents[dIdx].updatedAt = Date().timeIntervalSince1970
         saveState()
+    }
+
+    private func rawBackupName(for originalFileName: String) -> String {
+        "raw_\(originalFileName)"
+    }
+
+    func hasCropBackup(for page: ScannedPage) -> Bool {
+        fm.fileExists(atPath: pagesDir.appendingPathComponent(rawBackupName(for: page.originalFileName)).path)
+    }
+
+    func applyPerspectiveCrop(
+        documentID: String,
+        pageID: String,
+        quadNorm: [Float],
+        rotationDegrees: Int,
+        mode: ScanFilterMode,
+        brightness: Float,
+        contrast: Float
+    ) async {
+        guard let dIdx = documents.firstIndex(where: { $0.id == documentID }),
+              let pIdx = documents[dIdx].pages.firstIndex(where: { $0.id == pageID }) else { return }
+        let page = documents[dIdx].pages[pIdx]
+        guard let orig = originalImage(for: page) else { return }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        let origURL = pagesDir.appendingPathComponent(page.originalFileName)
+        let backupURL = pagesDir.appendingPathComponent(rawBackupName(for: page.originalFileName))
+        if !fm.fileExists(atPath: backupURL.path) {
+            try? fm.copyItem(at: origURL, to: backupURL)
+        }
+
+        let cropped: UIImage? = await Task.detached(priority: .userInitiated) {
+            RustImageProcessor.perspectiveCrop(
+                image: orig,
+                quadNorm: quadNorm,
+                rotationDegrees: rotationDegrees,
+                maxEdgePx: 2400
+            )
+        }.value
+
+        guard let cropped else {
+            toastMessage = "Khung 4 góc không hợp lệ, vui lòng kéo lại"
+            return
+        }
+
+        if let cropData = cropped.jpegData(compressionQuality: 0.95) {
+            try? cropData.write(to: origURL, options: .atomic)
+        }
+
+        documents[dIdx].pages[pIdx].rotationDegrees = 0
+        await updatePage(
+            documentID: documentID,
+            pageID: pageID,
+            mode: mode,
+            brightness: brightness,
+            contrast: contrast,
+            rotationDegrees: 0
+        )
+        toastMessage = "Đã cắt nắn 4 góc"
+    }
+
+    func resetPerspectiveCrop(
+        documentID: String,
+        pageID: String,
+        mode: ScanFilterMode,
+        brightness: Float,
+        contrast: Float
+    ) async {
+        guard let dIdx = documents.firstIndex(where: { $0.id == documentID }),
+              let pIdx = documents[dIdx].pages.firstIndex(where: { $0.id == pageID }) else { return }
+        let page = documents[dIdx].pages[pIdx]
+        let origURL = pagesDir.appendingPathComponent(page.originalFileName)
+        let backupURL = pagesDir.appendingPathComponent(rawBackupName(for: page.originalFileName))
+        guard fm.fileExists(atPath: backupURL.path) else { return }
+
+        try? fm.removeItem(at: origURL)
+        try? fm.copyItem(at: backupURL, to: origURL)
+        try? fm.removeItem(at: backupURL)
+
+        await updatePage(
+            documentID: documentID,
+            pageID: pageID,
+            mode: mode,
+            brightness: brightness,
+            contrast: contrast,
+            rotationDegrees: 0
+        )
+        toastMessage = "Đã khôi phục ảnh gốc"
+    }
+
+    func addIdCardA4Document(
+        front: UIImage,
+        back: UIImage,
+        mode: ScanFilterMode,
+        intoDocumentID: String? = nil
+    ) async -> ScannedDocument? {
+        isProcessing = true
+        defer { isProcessing = false }
+
+        let composed = await Task.detached(priority: .userInitiated) {
+            RustImageProcessor.composeIdCardA4(front: front, back: back, mode: mode)
+        }.value
+
+        let prevDefault = defaultFilter
+        defaultFilter = .original
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd-MM_HHmm"
+        let title = intoDocumentID == nil ? "CCCD_2Mat_\(formatter.string(from: Date()))" : nil
+        let doc = await addScannedDocument(
+            images: [composed],
+            title: title,
+            folderId: "docs-id",
+            intoDocumentID: intoDocumentID
+        )
+        defaultFilter = prevDefault
+        if doc != nil {
+            toastMessage = "Đã ghép CCCD 2 mặt vào 1 trang A4"
+        }
+        return doc
     }
 
     func renameDocument(documentID: String, newTitle: String) {
@@ -243,6 +365,7 @@ final class ScanStore: ObservableObject {
     func deleteDocument(_ doc: ScannedDocument) {
         for page in doc.pages {
             try? fm.removeItem(at: pagesDir.appendingPathComponent(page.originalFileName))
+            try? fm.removeItem(at: pagesDir.appendingPathComponent(rawBackupName(for: page.originalFileName)))
             try? fm.removeItem(at: pagesDir.appendingPathComponent(page.renderedFileName))
         }
         documents.removeAll { $0.id == doc.id }
@@ -250,21 +373,39 @@ final class ScanStore: ObservableObject {
     }
 
     func savePagesToPhotos(_ doc: ScannedDocument) async {
+        let images = doc.pages.compactMap { renderedImage(for: $0) }
+        await saveCustomImagesToPhotos(images, format: .jpeg, asLongImage: false)
+    }
+
+    func saveCustomImagesToPhotos(_ images: [UIImage], format: ImageExportFormat, asLongImage: Bool) async {
+        guard !images.isEmpty else { return }
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             toastMessage = "Cần cấp quyền Ảnh để lưu trang scan vào Thư viện"
             return
         }
-        let images = doc.pages.compactMap { renderedImage(for: $0) }
-        guard !images.isEmpty else { return }
+
+        let targetImages: [UIImage]
+        if asLongImage, images.count > 1, let longImg = RustImageProcessor.composeLongImage(pages: images) {
+            targetImages = [longImg]
+        } else {
+            targetImages = images
+        }
 
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                for img in images {
-                    PHAssetChangeRequest.creationRequestForAsset(from: img)
+                for img in targetImages {
+                    if format == .png, let pngData = img.pngData() {
+                        let req = PHAssetCreationRequest.forAsset()
+                        req.addResource(with: .photo, data: pngData, options: nil)
+                    } else {
+                        PHAssetChangeRequest.creationRequestForAsset(from: img)
+                    }
                 }
             }
-            toastMessage = "Đã lưu \(images.count) ảnh vào Thư viện Ảnh iPhone"
+            toastMessage = asLongImage && images.count > 1
+                ? "Đã lưu 1 Ảnh dài (\(format.fileExtension.uppercased())) vào Ảnh"
+                : "Đã lưu \(targetImages.count) ảnh (\(format.fileExtension.uppercased())) vào Ảnh"
         } catch {
             toastMessage = "Không thể lưu ảnh: \(error.localizedDescription)"
         }

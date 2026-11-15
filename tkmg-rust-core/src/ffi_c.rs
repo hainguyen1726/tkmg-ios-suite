@@ -65,6 +65,86 @@ pub unsafe extern "C" fn tkmg_natural_compare_utf8(
     }
 }
 
+/// Computes target `(out_w, out_h)` from normalized `[tlX, tlY, trX, trY, brX, brY, blX, blY]` quad.
+/// Returns `1` on success, `0` on invalid input.
+#[no_mangle]
+pub unsafe extern "C" fn tkmg_estimate_quad_size(
+    src_w: i32,
+    src_h: i32,
+    quad_norm_ptr: *const f32,
+    max_edge: i32,
+    out_w: *mut i32,
+    out_h: *mut i32,
+) -> i32 {
+    if quad_norm_ptr.is_null() || out_w.is_null() || out_h.is_null() || src_w < 2 || src_h < 2 {
+        return 0;
+    }
+    let q_slice = slice::from_raw_parts(quad_norm_ptr, 8);
+    let q: [f32; 8] = [
+        q_slice[0], q_slice[1], q_slice[2], q_slice[3],
+        q_slice[4], q_slice[5], q_slice[6], q_slice[7],
+    ];
+    let (w, h) = crate::perspective::estimate_quad_output_size(
+        src_w as usize,
+        src_h as usize,
+        &q,
+        max_edge.max(16) as usize,
+    );
+    *out_w = w as i32;
+    *out_h = h as i32;
+    1
+}
+
+/// Applies bilinear perspective warp from `src_ptr` (`0xAARRGGBB`) into pre-allocated `dst_ptr`.
+/// Returns `1` on success, `0` on invalid/degenerate input.
+#[no_mangle]
+pub unsafe extern "C" fn tkmg_perspective_warp_argb(
+    src_ptr: *const u32,
+    src_w: i32,
+    src_h: i32,
+    quad_norm_ptr: *const f32,
+    dst_ptr: *mut u32,
+    dst_w: i32,
+    dst_h: i32,
+) -> i32 {
+    if src_ptr.is_null()
+        || dst_ptr.is_null()
+        || quad_norm_ptr.is_null()
+        || src_w < 2
+        || src_h < 2
+        || dst_w < 2
+        || dst_h < 2
+    {
+        return 0;
+    }
+    let Some(src_total) = (src_w as usize).checked_mul(src_h as usize) else {
+        return 0;
+    };
+    let Some(dst_total) = (dst_w as usize).checked_mul(dst_h as usize) else {
+        return 0;
+    };
+    let src_slice = slice::from_raw_parts(src_ptr as *const i32, src_total);
+    let dst_slice = slice::from_raw_parts_mut(dst_ptr as *mut i32, dst_total);
+    let q_slice = slice::from_raw_parts(quad_norm_ptr, 8);
+    let q: [f32; 8] = [
+        q_slice[0], q_slice[1], q_slice[2], q_slice[3],
+        q_slice[4], q_slice[5], q_slice[6], q_slice[7],
+    ];
+    if crate::perspective::perspective_warp_into(
+        src_slice,
+        src_w as usize,
+        src_h as usize,
+        &q,
+        dst_slice,
+        dst_w as usize,
+        dst_h as usize,
+    ) {
+        1
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
