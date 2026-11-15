@@ -56,6 +56,9 @@ final class MediaLibraryStore: ObservableObject {
     }
 
     func resolveURL(for item: MediaItem) -> (url: URL, isSecurityScoped: Bool)? {
+        if let remote = item.remoteStreamURL, let remoteURL = URL(string: remote) {
+            return (remoteURL, false)
+        }
         if let rel = item.relativePath {
             let candidate = documentsURL.appendingPathComponent(rel)
             if fm.fileExists(atPath: candidate.path) {
@@ -167,6 +170,13 @@ final class MediaLibraryStore: ObservableObject {
                         discovered.append(mergeSavedProgress(newItem: item, oldMap: oldById))
                     }
                 }
+            }
+        }
+
+        let playlistItemIDs = Set(playlists.flatMap { $0.itemIDs })
+        for oldItem in items where oldItem.remoteStreamURL != nil && playlistItemIDs.contains(oldItem.id) {
+            if seenIds.insert(oldItem.id).inserted {
+                discovered.append(oldItem)
             }
         }
 
@@ -292,7 +302,7 @@ final class MediaLibraryStore: ObservableObject {
     }
 
     func deleteItem(_ item: MediaItem) {
-        if let resolved = resolveURL(for: item) {
+        if item.remoteStreamURL == nil, let resolved = resolveURL(for: item) {
             if resolved.isSecurityScoped {
                 _ = resolved.url.startAccessingSecurityScopedResource()
             }
@@ -363,6 +373,71 @@ final class MediaLibraryStore: ObservableObject {
         saveState()
     }
 
+    func getOnlineDownloadDir(subFolderName: String?) -> URL {
+        let base = documentsURL.appendingPathComponent("Online Downloads", isDirectory: true)
+        let forbidden = CharacterSet(charactersIn: "\\/:*?\"<>|")
+        let cleanSub = (subFolderName ?? "")
+            .components(separatedBy: forbidden)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let target: URL
+        if !cleanSub.isEmpty {
+            target = base.appendingPathComponent(String(cleanSub.prefix(50)), isDirectory: true)
+        } else {
+            target = base
+        }
+        try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+        return target
+    }
+
+    func saveOnlinePlaylistToLibrary(name: String, tracks: [ResolvedOnlineTrack], asVideo: Bool) {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plName = cleanName.isEmpty ? "Playlist Online" : cleanName
+        let now = Date().timeIntervalSince1970
+        var newIDs: [String] = []
+
+        for t in tracks {
+            let streamURL = asVideo ? t.streamVideoURL : t.streamAudioURL
+            let id = "online:\(asVideo ? "v" : "a"):\(t.id):\(abs(streamURL.hashValue))"
+            let padded = String(format: "%02d", t.index)
+            let fileName = "\(padded) - \(t.title).\(asVideo ? "mp4" : "m4a")"
+            let item = MediaItem(
+                id: id,
+                relativePath: nil,
+                bookmarkData: nil,
+                remoteStreamURL: streamURL,
+                fileName: fileName,
+                folderName: "Online",
+                kind: asVideo ? .video : .audio,
+                sizeBytes: 0,
+                modifiedAt: now,
+                durationSec: t.duration,
+                title: t.title,
+                artist: t.uploader.isEmpty ? plName : t.uploader,
+                album: plName,
+                positionSec: 0,
+                isCompleted: false,
+                isFavorite: false,
+                lastPlayedAt: 0
+            )
+            if !items.contains(where: { $0.id == id }) {
+                items.append(item)
+            }
+            newIDs.append(id)
+        }
+
+        createPlaylist(name: plName, initialItemIDs: newIDs)
+        statusMessage = "Đã lưu Playlist Online \"\(plName)\" (\(newIDs.count) bài)"
+    }
+
+    func itemIDForDownloadedURL(_ fileURL: URL) -> String? {
+        let prefix = documentsURL.standardizedFileURL.path + "/"
+        let full = fileURL.standardizedFileURL.path
+        guard full.hasPrefix(prefix) else { return nil }
+        let rel = String(full.dropFirst(prefix.count))
+        return "doc:\(rel)"
+    }
+
     func filteredAndSortedItems(
         query: String,
         filter: MediaFilter,
@@ -374,6 +449,8 @@ final class MediaLibraryStore: ObservableObject {
         if let playlistID, let pl = playlists.first(where: { $0.id == playlistID }) {
             let map = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
             result = pl.itemIDs.compactMap { map[$0] }
+        } else {
+            result = result.filter { $0.remoteStreamURL == nil }
         }
 
         switch filter {

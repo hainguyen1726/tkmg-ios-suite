@@ -21,6 +21,11 @@ struct ContentView: View {
                     .tabItem {
                         Label("Playlist", systemImage: "list.bullet.rectangle")
                     }
+
+                OnlineGrabTabView()
+                    .tabItem {
+                        Label("Tải / Online", systemImage: "icloud.and.arrow.down")
+                    }
             }
 
             if playerManager.currentItem != nil {

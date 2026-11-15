@@ -44,6 +44,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
     var id: String
     var relativePath: String?
     var bookmarkData: Data?
+    var remoteStreamURL: String? = nil
     var fileName: String
     var folderName: String
     var kind: MediaKind
