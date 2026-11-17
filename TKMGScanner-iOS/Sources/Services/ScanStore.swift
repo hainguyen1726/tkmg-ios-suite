@@ -153,7 +153,8 @@ final class ScanStore: ObservableObject {
         mode: ScanFilterMode,
         brightness: Float,
         contrast: Float,
-        rotationDegrees: Int
+        rotationDegrees: Int,
+        fineAngleDegrees: Float = 0.0
     ) async {
         guard let dIdx = documents.firstIndex(where: { $0.id == documentID }),
               let pIdx = documents[dIdx].pages.firstIndex(where: { $0.id == pageID }),
@@ -170,6 +171,7 @@ final class ScanStore: ObservableObject {
                 brightnessOffset: brightness,
                 contrastScale: contrast,
                 rotationDegrees: rotationDegrees,
+                fineAngleDegrees: fineAngleDegrees,
                 maxEdgePx: 2400
             )
         }.value
@@ -183,6 +185,7 @@ final class ScanStore: ObservableObject {
         documents[dIdx].pages[pIdx].brightness = brightness
         documents[dIdx].pages[pIdx].contrast = contrast
         documents[dIdx].pages[pIdx].rotationDegrees = ((rotationDegrees % 360) + 360) % 360
+        documents[dIdx].pages[pIdx].fineAngleDegrees = fineAngleDegrees
         documents[dIdx].updatedAt = Date().timeIntervalSince1970
         saveState()
     }
@@ -197,7 +200,8 @@ final class ScanStore: ObservableObject {
                 mode: mode,
                 brightness: brightness,
                 contrast: contrast,
-                rotationDegrees: page.rotationDegrees
+                rotationDegrees: page.rotationDegrees,
+                fineAngleDegrees: page.fineAngleDegrees
             )
         }
         toastMessage = "Đã áp dụng bộ lọc cho tất cả \(pages.count) trang"
@@ -238,6 +242,7 @@ final class ScanStore: ObservableObject {
         pageID: String,
         quadNorm: [Float],
         rotationDegrees: Int,
+        fineAngleDegrees: Float = 0.0,
         mode: ScanFilterMode,
         brightness: Float,
         contrast: Float
@@ -261,6 +266,7 @@ final class ScanStore: ObservableObject {
                 image: orig,
                 quadNorm: quadNorm,
                 rotationDegrees: rotationDegrees,
+                fineAngleDegrees: fineAngleDegrees,
                 maxEdgePx: 2400
             )
         }.value
@@ -275,13 +281,15 @@ final class ScanStore: ObservableObject {
         }
 
         documents[dIdx].pages[pIdx].rotationDegrees = 0
+        documents[dIdx].pages[pIdx].fineAngleDegrees = 0.0
         await updatePage(
             documentID: documentID,
             pageID: pageID,
             mode: mode,
             brightness: brightness,
             contrast: contrast,
-            rotationDegrees: 0
+            rotationDegrees: 0,
+            fineAngleDegrees: 0.0
         )
         toastMessage = "Đã cắt nắn 4 góc"
     }
@@ -310,7 +318,8 @@ final class ScanStore: ObservableObject {
             mode: mode,
             brightness: brightness,
             contrast: contrast,
-            rotationDegrees: 0
+            rotationDegrees: 0,
+            fineAngleDegrees: 0.0
         )
         toastMessage = "Đã khôi phục ảnh gốc"
     }

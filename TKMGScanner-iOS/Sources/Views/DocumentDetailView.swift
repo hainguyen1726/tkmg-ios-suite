@@ -361,7 +361,7 @@ struct ExportPdfSheet: View {
                                 if isExporting {
                                     ProgressView()
                                 } else {
-                                    Label("Chia sẻ Ảnh / Lưu Tệp (Zalo, Files...)", systemImage: "square.and.arrow.up")
+                                    Label("Chia sẻ Ảnh / Lưu Tệp (Files, Tin nhắn...)", systemImage: "square.and.arrow.up")
                                         .fontWeight(.bold)
                                 }
                                 Spacer()

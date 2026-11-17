@@ -1,3 +1,4 @@
+#if SIDELOAD_BUILD
 import Foundation
 import SwiftUI
 
@@ -261,3 +262,4 @@ extension View {
         modifier(UpdateAlertOverlayModifier(checker: checker))
     }
 }
+#endif

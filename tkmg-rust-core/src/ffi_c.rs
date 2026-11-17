@@ -145,6 +145,24 @@ pub unsafe extern "C" fn tkmg_perspective_warp_argb(
     }
 }
 
+/// Estimates fine correction angle (degrees) to level horizontal text lines.
+#[no_mangle]
+pub unsafe extern "C" fn tkmg_estimate_skew_deg(
+    src_ptr: *const u32,
+    width: i32,
+    height: i32,
+    max_angle_deg: f32,
+) -> f32 {
+    if src_ptr.is_null() || width < 16 || height < 16 {
+        return 0.0;
+    }
+    let Some(total) = (width as usize).checked_mul(height as usize) else {
+        return 0.0;
+    };
+    let slice = slice::from_raw_parts(src_ptr as *const i32, total);
+    crate::deskew::estimate_skew_correction_degrees(slice, width as usize, height as usize, max_angle_deg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

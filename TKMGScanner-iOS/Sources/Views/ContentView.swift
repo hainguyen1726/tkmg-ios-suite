@@ -3,7 +3,9 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var store: ScanStore
+#if SIDELOAD_BUILD
     @EnvironmentObject var updateChecker: AppUpdateChecker
+#endif
 
     @State private var selectedFolderId = "all"
     @State private var searchQuery = ""
@@ -11,6 +13,7 @@ struct ContentView: View {
     @State private var showCamera = false
     @State private var showIdCardComposer = false
     @State private var showNoCameraAlert = false
+    @State private var showAboutSheet = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showNewFolderAlert = false
     @State private var newFolderName = ""
@@ -23,11 +26,13 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
+#if SIDELOAD_BUILD
                 if let pending = updateChecker.bannerUpdate {
                     UpdateAvailableBannerView(update: pending) {
                         updateChecker.alertUpdate = pending
                     }
                 }
+#endif
                 // Folder Chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -141,6 +146,7 @@ struct ContentView: View {
                             }
                         }
                         Divider()
+#if SIDELOAD_BUILD
                         Button {
                             Task { await updateChecker.checkForUpdates(manual: true) }
                         } label: {
@@ -150,6 +156,12 @@ struct ContentView: View {
                             )
                         }
                         .disabled(updateChecker.isChecking)
+#endif
+                        Button {
+                            showAboutSheet = true
+                        } label: {
+                            Label("Thông tin & Quyền riêng tư", systemImage: "info.circle")
+                        }
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                     }
@@ -198,6 +210,9 @@ struct ContentView: View {
                     navigationPath.append(doc.id)
                 })
                 .environmentObject(store)
+            }
+            .sheet(isPresented: $showAboutSheet) {
+                AboutPrivacySheet()
             }
             .fullScreenCover(isPresented: $showCamera) {
                 DocumentCameraWrapper(
@@ -261,6 +276,44 @@ struct ContentView: View {
             showCamera = true
         } else {
             showNoCameraAlert = true
+        }
+    }
+}
+
+private struct AboutPrivacySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Xử lý hoàn toàn trên thiết bị") {
+                    Label("100% Offline — không tải tài liệu lên máy chủ, không quảng cáo, không gắn watermark.", systemImage: "lock.shield.fill")
+                    Label("Không yêu cầu tài khoản đăng nhập và không thu thập dữ liệu cá nhân.", systemImage: "person.crop.circle.badge.checkmark")
+                }
+
+                Section("Mẹo căn chỉnh tài liệu thẳng nét") {
+                    Label("Camera thông minh: tự nhận diện viền giấy khi chụp trực tiếp.", systemImage: "camera.viewfinder")
+                    Label("Tự căn thẳng & Xoay nghiêng (-15°..+15°): chỉnh lại văn bản chụp lệch ngay trong trình chỉnh trang.", systemImage: "level")
+                    Label("Cắt 4 góc: hỗ trợ tự bắt viền giấy và kéo 4 điểm neo thủ công (có Khôi phục gốc).", systemImage: "crop")
+                    Label("Ghép CCCD 2 mặt vào 1 trang A4 sắc nét.", systemImage: "person.text.rectangle.fill")
+                }
+
+                Section("Phiên bản") {
+                    let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.1.0"
+                    let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "4"
+                    HStack {
+                        Text("TKMG Scanner")
+                        Spacer()
+                        Text("v\(version) (\(build))")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Thông tin ứng dụng")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                Button("Đóng") { dismiss() }
+            }
         }
     }
 }

@@ -47,7 +47,7 @@ enum PdfPageSize: String, CaseIterable, Identifiable {
 enum PdfQuality: String, CaseIterable, Identifiable {
     case high = "Nét cao (In ấn)"
     case standard = "Tiêu chuẩn (Cân bằng)"
-    case compact = "Nhẹ (Gửi Zalo / Email)"
+    case compact = "Nhẹ (Gửi nhanh / Email)"
 
     var id: String { rawValue }
 
@@ -112,6 +112,39 @@ struct ScannedPage: Identifiable, Codable, Hashable {
     var brightness: Float
     var contrast: Float
     var rotationDegrees: Int
+    var fineAngleDegrees: Float
+
+    init(
+        id: String,
+        originalFileName: String,
+        renderedFileName: String,
+        filterMode: ScanFilterMode,
+        brightness: Float,
+        contrast: Float,
+        rotationDegrees: Int,
+        fineAngleDegrees: Float = 0.0
+    ) {
+        self.id = id
+        self.originalFileName = originalFileName
+        self.renderedFileName = renderedFileName
+        self.filterMode = filterMode
+        self.brightness = brightness
+        self.contrast = contrast
+        self.rotationDegrees = rotationDegrees
+        self.fineAngleDegrees = fineAngleDegrees
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        originalFileName = try c.decode(String.self, forKey: .originalFileName)
+        renderedFileName = try c.decode(String.self, forKey: .renderedFileName)
+        filterMode = try c.decode(ScanFilterMode.self, forKey: .filterMode)
+        brightness = try c.decode(Float.self, forKey: .brightness)
+        contrast = try c.decode(Float.self, forKey: .contrast)
+        rotationDegrees = try c.decode(Int.self, forKey: .rotationDegrees)
+        fineAngleDegrees = try c.decodeIfPresent(Float.self, forKey: .fineAngleDegrees) ?? 0.0
+    }
 }
 
 struct ScannedDocument: Identifiable, Codable, Hashable {

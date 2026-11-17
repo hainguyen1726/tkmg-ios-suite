@@ -1,33 +1,17 @@
 import CoreGraphics
 import TkmgCore
 import UIKit
+import Vision
 
 enum RustImageProcessor {
-    /// Normalizes EXIF orientation, rotates cleanly, applies Rust ARM64 filter on 0xAARRGGBB pixels.
-    static func process(
-        image: UIImage,
-        mode: ScanFilterMode,
-        brightnessOffset: Float,
-        contrastScale: Float,
-        rotationDegrees: Int = 0,
-        maxEdgePx: CGFloat? = nil
-    ) -> UIImage {
-        let oriented = normalizedAndRotated(image: image, rotationDegrees: rotationDegrees, maxEdgePx: maxEdgePx)
-        guard let cgImage = oriented.cgImage else { return oriented }
-
-        if mode == .original && abs(brightnessOffset) < 0.005 && abs(contrastScale - 1.0) < 0.005 {
-            return oriented
-        }
-
+    private static func extractARGBPixels(from cgImage: CGImage) -> [UInt32]? {
         let width = cgImage.width
         let height = cgImage.height
-        guard width > 0, height > 0 else { return oriented }
-
+        guard width > 0, height > 0 else { return nil }
         var pixels = [UInt32](repeating: 0, count: width * height)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-
-        return pixels.withUnsafeMutableBufferPointer { buf in
+        let drawn = pixels.withUnsafeMutableBufferPointer { buf -> Bool in
             guard let base = buf.baseAddress,
                   let ctx = CGContext(
                       data: base,
@@ -38,11 +22,44 @@ enum RustImageProcessor {
                       space: colorSpace,
                       bitmapInfo: bitmapInfo
                   ) else {
-                return oriented
+                return false
             }
-
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        return drawn ? pixels : nil
+    }
 
+    /// Normalizes EXIF orientation, rotates cleanly, applies Rust ARM64 filter on 0xAARRGGBB pixels.
+    static func process(
+        image: UIImage,
+        mode: ScanFilterMode,
+        brightnessOffset: Float,
+        contrastScale: Float,
+        rotationDegrees: Int = 0,
+        fineAngleDegrees: Float = 0.0,
+        maxEdgePx: CGFloat? = nil
+    ) -> UIImage {
+        let oriented = normalizedAndRotated(
+            image: image,
+            rotationDegrees: rotationDegrees,
+            fineAngleDegrees: fineAngleDegrees,
+            maxEdgePx: maxEdgePx
+        )
+        guard let cgImage = oriented.cgImage else { return oriented }
+
+        if mode == .original && abs(brightnessOffset) < 0.005 && abs(contrastScale - 1.0) < 0.005 {
+            return oriented
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        guard var pixels = extractARGBPixels(from: cgImage) else { return oriented }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+
+        return pixels.withUnsafeMutableBufferPointer { buf in
+            guard let base = buf.baseAddress else { return oriented }
             tkmg_apply_document_filter_argb(
                 base,
                 Int32(width),
@@ -51,8 +68,18 @@ enum RustImageProcessor {
                 brightnessOffset,
                 contrastScale
             )
-
-            guard let outCG = ctx.makeImage() else { return oriented }
+            guard let ctx = CGContext(
+                data: base,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ),
+            let outCG = ctx.makeImage() else {
+                return oriented
+            }
             return UIImage(cgImage: outCG, scale: 1.0, orientation: .up)
         }
     }
@@ -60,6 +87,7 @@ enum RustImageProcessor {
     static func normalizedAndRotated(
         image: UIImage,
         rotationDegrees: Int,
+        fineAngleDegrees: Float = 0.0,
         maxEdgePx: CGFloat?
     ) -> UIImage {
         let baseSize = image.size
@@ -87,8 +115,9 @@ enum RustImageProcessor {
             ctx.setFillColor(UIColor.white.cgColor)
             ctx.fill(CGRect(origin: .zero, size: canvasSize))
 
+            let totalDeg = CGFloat(normSteps) + CGFloat(fineAngleDegrees)
             ctx.translateBy(x: canvasSize.width / 2, y: canvasSize.height / 2)
-            ctx.rotate(by: CGFloat(normSteps) * .pi / 180.0)
+            ctx.rotate(by: totalDeg * .pi / 180.0)
             image.draw(in: CGRect(
                 x: -targetSize.width / 2,
                 y: -targetSize.height / 2,
@@ -98,41 +127,94 @@ enum RustImageProcessor {
         }
     }
 
+    /// Estimates small correction angle (-maxAngleDeg..+maxAngleDeg) needed to level tilted text lines via Rust Core.
+    static func estimateSkewDegrees(
+        image: UIImage,
+        rotationDegrees: Int = 0,
+        maxAngleDeg: Float = 15.0
+    ) -> Float {
+        let oriented = normalizedAndRotated(
+            image: image,
+            rotationDegrees: rotationDegrees,
+            fineAngleDegrees: 0.0,
+            maxEdgePx: 480
+        )
+        guard let cgImage = oriented.cgImage,
+              let pixels = extractARGBPixels(from: cgImage) else {
+            return 0.0
+        }
+        return pixels.withUnsafeBufferPointer { buf -> Float in
+            guard let base = buf.baseAddress else { return 0.0 }
+            return tkmg_estimate_skew_deg(base, Int32(cgImage.width), Int32(cgImage.height), maxAngleDeg)
+        }
+    }
+
+    /// Offline Apple Vision rectangle detection returning [TL, TR, BR, BL] normalized coordinates (top-left origin).
+    static func detectPaperQuad(
+        in image: UIImage,
+        rotationDegrees: Int = 0,
+        fineAngleDegrees: Float = 0.0
+    ) -> [CGPoint]? {
+        let oriented = normalizedAndRotated(
+            image: image,
+            rotationDegrees: rotationDegrees,
+            fineAngleDegrees: fineAngleDegrees,
+            maxEdgePx: 1000
+        )
+        guard let cgImage = oriented.cgImage else { return nil }
+
+        let request = VNDetectRectanglesRequest()
+        request.maximumObservations = 1
+        request.minimumConfidence = 0.5
+        request.minimumAspectRatio = 0.2
+        request.quadratureTolerance = 35.0
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            return nil
+        }
+
+        guard let rect = request.results?.first else { return nil }
+        func toTopLeft(_ pt: CGPoint) -> CGPoint {
+            CGPoint(
+                x: min(max(pt.x, 0.0), 1.0),
+                y: min(max(1.0 - pt.y, 0.0), 1.0)
+            )
+        }
+        return [
+            toTopLeft(rect.topLeft),
+            toTopLeft(rect.topRight),
+            toTopLeft(rect.bottomRight),
+            toTopLeft(rect.bottomLeft)
+        ]
+    }
+
     static func perspectiveCrop(
         image: UIImage,
         quadNorm: [Float],
         rotationDegrees: Int = 0,
+        fineAngleDegrees: Float = 0.0,
         maxEdgePx: CGFloat = 2400
     ) -> UIImage? {
         guard quadNorm.count >= 8 else { return nil }
-        let oriented = normalizedAndRotated(image: image, rotationDegrees: rotationDegrees, maxEdgePx: maxEdgePx)
-        guard let cgImage = oriented.cgImage else { return nil }
+        let oriented = normalizedAndRotated(
+            image: image,
+            rotationDegrees: rotationDegrees,
+            fineAngleDegrees: fineAngleDegrees,
+            maxEdgePx: maxEdgePx
+        )
+        guard let cgImage = oriented.cgImage,
+              let srcPixels = extractARGBPixels(from: cgImage) else {
+            return nil
+        }
 
         let sw = cgImage.width
         let sh = cgImage.height
         guard sw >= 2, sh >= 2 else { return nil }
-
-        var srcPixels = [UInt32](repeating: 0, count: sw * sh)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-
-        let drawn = srcPixels.withUnsafeMutableBufferPointer { buf -> Bool in
-            guard let base = buf.baseAddress,
-                  let ctx = CGContext(
-                      data: base,
-                      width: sw,
-                      height: sh,
-                      bitsPerComponent: 8,
-                      bytesPerRow: sw * 4,
-                      space: colorSpace,
-                      bitmapInfo: bitmapInfo
-                  ) else {
-                return false
-            }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: sw, height: sh))
-            return true
-        }
-        guard drawn else { return nil }
 
         var outW: Int32 = 0
         var outH: Int32 = 0

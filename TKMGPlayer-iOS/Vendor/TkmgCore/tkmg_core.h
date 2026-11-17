@@ -59,6 +59,16 @@ int32_t tkmg_perspective_warp_argb(
     int32_t dst_h
 );
 
+/**
+ * Estimates fine correction angle (degrees) needed to level tilted document text.
+ */
+float tkmg_estimate_skew_deg(
+    const uint32_t *src_ptr,
+    int32_t width,
+    int32_t height,
+    float max_angle_deg
+);
+
 #ifdef __cplusplus
 }
 #endif

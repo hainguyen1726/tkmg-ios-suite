@@ -1,3 +1,4 @@
+pub mod deskew;
 pub mod ffi_c;
 pub mod natural_sort;
 pub mod perspective;

@@ -10,6 +10,10 @@ struct PageEditorView: View {
     @State private var brightness: Float = 0.0
     @State private var contrast: Float = 1.0
     @State private var rotationDegrees: Int = 0
+    @State private var fineAngleDegrees: Float = 0.0
+    @State private var showGrid = false
+    @State private var isAdjustingSkew = false
+    @State private var isAutoAligning = false
     @State private var isCropping = false
     @State private var quadPoints: [CGPoint] = [
         CGPoint(x: 0.06, y: 0.06),
@@ -39,6 +43,10 @@ struct PageEditorView: View {
                                 .frame(width: drawRect.width, height: drawRect.height)
                                 .position(x: drawRect.midX, y: drawRect.midY)
 
+                            if (showGrid || isAdjustingSkew || isCropping) && drawRect.width > 10 && drawRect.height > 10 {
+                                AlignmentGridOverlay(drawRect: drawRect)
+                            }
+
                             if isCropping && drawRect.width > 10 && drawRect.height > 10 {
                                 QuadCropOverlay(
                                     quadPoints: $quadPoints,
@@ -56,63 +64,75 @@ struct PageEditorView: View {
 
             if isCropping {
                 VStack(spacing: 10) {
-                    Text("Kéo 4 chấm tròn vào 4 góc tờ giấy rồi bấm Áp dụng (xử lý qua Rust Core).")
+                    Text("Kéo 4 chấm tròn vào 4 góc tờ giấy hoặc bấm Tự bắt viền rồi Áp dụng.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    HStack(spacing: 10) {
-                        Button("Đặt lại khung") {
-                            quadPoints = [
-                                CGPoint(x: 0.06, y: 0.06),
-                                CGPoint(x: 0.94, y: 0.06),
-                                CGPoint(x: 0.94, y: 0.94),
-                                CGPoint(x: 0.06, y: 0.94)
-                            ]
-                        }
-                        .buttonStyle(.bordered)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            Button {
+                                detectPaperCorners()
+                            } label: {
+                                Label(isAutoAligning ? "Đang dò..." : "Tự bắt viền", systemImage: "viewfinder")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isAutoAligning)
 
-                        if let p = page, store.hasCropBackup(for: p) {
-                            Button("Khôi phục gốc") {
+                            Button("Đặt lại") {
+                                quadPoints = [
+                                    CGPoint(x: 0.06, y: 0.06),
+                                    CGPoint(x: 0.94, y: 0.06),
+                                    CGPoint(x: 0.94, y: 0.94),
+                                    CGPoint(x: 0.06, y: 0.94)
+                                ]
+                            }
+                            .buttonStyle(.bordered)
+
+                            if let p = page, store.hasCropBackup(for: p) {
+                                Button("Khôi phục gốc") {
+                                    isCropping = false
+                                    Task {
+                                        await store.resetPerspectiveCrop(
+                                            documentID: documentID,
+                                            pageID: pageID,
+                                            mode: mode,
+                                            brightness: brightness,
+                                            contrast: contrast
+                                        )
+                                        rotationDegrees = 0
+                                        fineAngleDegrees = 0.0
+                                        reloadOriginalSource()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+
+                            Button("Hủy") {
+                                isCropping = false
+                                refreshPreview()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Áp dụng") {
+                                let qFloat: [Float] = quadPoints.flatMap { [Float($0.x), Float($0.y)] }
                                 isCropping = false
                                 Task {
-                                    await store.resetPerspectiveCrop(
+                                    await store.applyPerspectiveCrop(
                                         documentID: documentID,
                                         pageID: pageID,
+                                        quadNorm: qFloat,
+                                        rotationDegrees: rotationDegrees,
+                                        fineAngleDegrees: fineAngleDegrees,
                                         mode: mode,
                                         brightness: brightness,
                                         contrast: contrast
                                     )
+                                    rotationDegrees = 0
+                                    fineAngleDegrees = 0.0
                                     reloadOriginalSource()
                                 }
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
                         }
-
-                        Spacer()
-
-                        Button("Hủy") {
-                            isCropping = false
-                            refreshPreview()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button("Áp dụng") {
-                            let qFloat: [Float] = quadPoints.flatMap { [Float($0.x), Float($0.y)] }
-                            isCropping = false
-                            Task {
-                                await store.applyPerspectiveCrop(
-                                    documentID: documentID,
-                                    pageID: pageID,
-                                    quadNorm: qFloat,
-                                    rotationDegrees: rotationDegrees,
-                                    mode: mode,
-                                    brightness: brightness,
-                                    contrast: contrast
-                                )
-                                rotationDegrees = 0
-                                reloadOriginalSource()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
                     }
                 }
                 .padding(.horizontal)
@@ -139,7 +159,35 @@ struct PageEditorView: View {
                     .padding(.horizontal)
                 }
 
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("Căn nghiêng")
+                            .font(.caption)
+                            .frame(width: 72, alignment: .leading)
+                        Slider(value: $fineAngleDegrees, in: -15.0...15.0, step: 0.5, onEditingChanged: { editing in
+                            isAdjustingSkew = editing
+                            if !editing { refreshPreview() }
+                        })
+                        Text(String(format: "%.1f°", fineAngleDegrees))
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 44, alignment: .trailing)
+                        if abs(fineAngleDegrees) >= 0.1 {
+                            Button("0°") {
+                                fineAngleDegrees = 0.0
+                                refreshPreview()
+                            }
+                            .font(.caption2.weight(.semibold))
+                            .buttonStyle(.bordered)
+                        }
+                        Button {
+                            runAutoDeskew()
+                        } label: {
+                            Label(isAutoAligning ? "..." : "Tự thẳng", systemImage: "level")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isAutoAligning)
+                    }
                     HStack {
                         Text("Độ sáng").font(.caption).frame(width: 72, alignment: .leading)
                         Slider(value: $brightness, in: -0.3...0.3, onEditingChanged: { editing in
@@ -155,7 +203,7 @@ struct PageEditorView: View {
                 }
                 .padding(.horizontal)
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Button {
                         isCropping = true
                         refreshPreview()
@@ -168,9 +216,19 @@ struct PageEditorView: View {
                         rotationDegrees = (rotationDegrees + 90) % 360
                         refreshPreview()
                     } label: {
-                        Label("Xoay", systemImage: "rotate.right")
+                        Image(systemName: "rotate.right")
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Xoay 90 độ")
+
+                    Button {
+                        showGrid.toggle()
+                    } label: {
+                        Image(systemName: "grid")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(showGrid ? .accentColor : .secondary)
+                    .accessibilityLabel("Bật tắt lưới căn chỉnh")
 
                     Button {
                         Task {
@@ -197,7 +255,8 @@ struct PageEditorView: View {
                                 mode: mode,
                                 brightness: brightness,
                                 contrast: contrast,
-                                rotationDegrees: rotationDegrees
+                                rotationDegrees: rotationDegrees,
+                                fineAngleDegrees: fineAngleDegrees
                             )
                             dismiss()
                         }
@@ -219,7 +278,46 @@ struct PageEditorView: View {
                 brightness = p.brightness
                 contrast = p.contrast
                 rotationDegrees = p.rotationDegrees
+                fineAngleDegrees = p.fineAngleDegrees
                 reloadOriginalSource()
+            }
+        }
+    }
+
+    private func runAutoDeskew() {
+        guard let src = sourcePreview else { return }
+        let rot = rotationDegrees
+        isAutoAligning = true
+        Task.detached(priority: .userInitiated) {
+            let suggested = RustImageProcessor.estimateSkewDegrees(image: src, rotationDegrees: rot, maxAngleDeg: 15.0)
+            await MainActor.run {
+                isAutoAligning = false
+                fineAngleDegrees = suggested
+                showGrid = true
+                refreshPreview()
+                if abs(suggested) < 0.25 {
+                    store.toastMessage = "Trang văn bản đã thẳng hàng"
+                } else {
+                    store.toastMessage = String(format: "Đã tự căn thẳng %.1f°", suggested)
+                }
+            }
+        }
+    }
+
+    private func detectPaperCorners() {
+        guard let src = sourcePreview else { return }
+        let rot = rotationDegrees
+        let fine = fineAngleDegrees
+        isAutoAligning = true
+        Task.detached(priority: .userInitiated) {
+            let detected = RustImageProcessor.detectPaperQuad(in: src, rotationDegrees: rot, fineAngleDegrees: fine)
+            await MainActor.run {
+                isAutoAligning = false
+                if let detected, detected.count == 4 {
+                    quadPoints = detected
+                } else {
+                    store.toastMessage = "Không thấy rõ 4 mép giấy — hãy kéo 4 điểm góc thủ công"
+                }
             }
         }
     }
@@ -237,6 +335,7 @@ struct PageEditorView: View {
         let b: Float = isCropping ? 0.0 : brightness
         let c: Float = isCropping ? 1.0 : contrast
         let r = rotationDegrees
+        let fa = fineAngleDegrees
         Task.detached(priority: .userInitiated) {
             let out = RustImageProcessor.process(
                 image: src,
@@ -244,6 +343,7 @@ struct PageEditorView: View {
                 brightnessOffset: b,
                 contrastScale: c,
                 rotationDegrees: r,
+                fineAngleDegrees: fa,
                 maxEdgePx: 1100
             )
             await MainActor.run {
@@ -271,6 +371,28 @@ struct PageEditorView: View {
 private extension CGSize {
     func insetBy(_ inset: CGFloat) -> CGSize {
         CGSize(width: max(1, width - inset * 2), height: max(1, height - inset * 2))
+    }
+}
+
+private struct AlignmentGridOverlay: View {
+    let drawRect: CGRect
+
+    var body: some View {
+        Path { path in
+            let divisions = 4
+            for i in 1..<divisions {
+                let t = CGFloat(i) / CGFloat(divisions)
+                let vx = drawRect.minX + drawRect.width * t
+                path.move(to: CGPoint(x: vx, y: drawRect.minY))
+                path.addLine(to: CGPoint(x: vx, y: drawRect.maxY))
+
+                let hy = drawRect.minY + drawRect.height * t
+                path.move(to: CGPoint(x: drawRect.minX, y: hy))
+                path.addLine(to: CGPoint(x: drawRect.maxX, y: hy))
+            }
+        }
+        .stroke(Color.white.opacity(0.38), style: StrokeStyle(lineWidth: 0.9, dash: [4, 4]))
+        .allowsHitTesting(false)
     }
 }
 

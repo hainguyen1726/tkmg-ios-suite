@@ -43,6 +43,42 @@ final class TKMGScannerTests: XCTestCase {
         XCTAssertEqual(idCardA4.cgImage?.height, 1754)
     }
 
+    func testAutoDeskewFindsCorrectionAndScannedPageDecodesWithoutFineAngle() throws {
+        // Synthetic tilted text lines (+6 deg clockwise) rendered via CoreGraphics
+        let size = CGSize(width: 180, height: 180)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        let tilted = UIGraphicsImageRenderer(size: size, format: format).image { rctx in
+            let ctx = rctx.cgContext
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.translateBy(x: 90, y: 90)
+            ctx.rotate(by: 6.0 * .pi / 180.0)
+            UIColor.black.setFill()
+            for row in stride(from: -50, through: 50, by: 16) {
+                ctx.fill(CGRect(x: -55, y: row, width: 110, height: 5))
+            }
+        }
+        let correction = RustImageProcessor.estimateSkewDegrees(image: tilted, maxAngleDeg: 15.0)
+        XCTAssertLessThan(abs(correction - (-6.0)), 1.0, "Expected ~ -6.0 deg correction, got \(correction)")
+
+        let legacyJson = """
+        {
+          "id": "p1",
+          "originalFileName": "p1_orig.jpg",
+          "renderedFileName": "p1_rend.jpg",
+          "filterMode": 1,
+          "brightness": 0.0,
+          "contrast": 1.0,
+          "rotationDegrees": 0
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ScannedPage.self, from: legacyJson)
+        XCTAssertEqual(decoded.fineAngleDegrees, 0.0)
+    }
+
+#if SIDELOAD_BUILD
     func testAppUpdateLogicDetectsNewerScannerIOSBuild() throws {
         let json = """
         {
@@ -65,4 +101,5 @@ final class TKMGScannerTests: XCTestCase {
         XCTAssertTrue(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.1.0", localBuildCode: 2))
         XCTAssertFalse(AppUpdateLogic.isNewerUpdate(remote: parsed!, localVersion: "1.2.0", localBuildCode: 3))
     }
+#endif
 }
