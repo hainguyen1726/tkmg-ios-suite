@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct TKMGPlayerApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var library = MediaLibraryStore()
     @StateObject private var playerManager = AudioPlayerManager()
     @StateObject private var updateChecker = AppUpdateChecker(appId: "tkmg-player-ios")
@@ -18,6 +19,11 @@ struct TKMGPlayerApp: App {
                 .onAppear {
                     playerManager.attachLibrary(library)
                     updateChecker.checkOnLaunchIfNeeded()
+                }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active {
+                        updateChecker.checkOnResumeIfNeeded()
+                    }
                 }
                 .onOpenURL { url in
                     Task {

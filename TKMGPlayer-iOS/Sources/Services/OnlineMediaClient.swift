@@ -10,21 +10,31 @@ struct ResolvedOnlineTrack: Identifiable, Codable, Hashable {
     let url: String
     let streamAudioURL: String
     let streamVideoURL: String
+    let isPlaylist: Bool?
+
+    var isPlaylistItem: Bool { isPlaylist ?? false }
 
     enum CodingKeys: String, CodingKey {
         case index, id, title, uploader, duration, thumbnail, url
         case streamAudioURL = "stream_audio_url"
         case streamVideoURL = "stream_video_url"
+        case isPlaylist = "is_playlist"
     }
 }
 
 struct ResolvedOnlineBatch: Codable {
     let type: String
+    let searchType: String?
     let title: String
     let uploader: String
     let cover: String
     let count: Int
     let items: [ResolvedOnlineTrack]
+
+    enum CodingKeys: String, CodingKey {
+        case type, title, uploader, cover, count, items
+        case searchType = "search_type"
+    }
 }
 
 private struct ResolveRequest: Encodable {
@@ -32,10 +42,17 @@ private struct ResolveRequest: Encodable {
     let force_playlist: Bool
 }
 
+private struct SearchRequest: Encodable {
+    let query: String
+    let limit: Int
+    let search_type: String
+}
+
 private struct DownloadRequest: Encodable {
     let url: String
     let format: String
     let title: String
+    let quality: String?
     let prefix_index: Int?
     let pad_width: Int?
 }
@@ -63,14 +80,28 @@ final class OnlineMediaClient {
     }
 
     func resolve(url: String, forcePlaylist: Bool = false) async throws -> ResolvedOnlineBatch {
-        guard let endpoint = URL(string: "\(baseURL)/api/app/resolve") else {
+        let payload = ResolveRequest(url: url.trimmingCharacters(in: .whitespacesAndNewlines), force_playlist: forcePlaylist)
+        return try await postBatch(path: "/api/app/resolve", body: payload, timeout: 120)
+    }
+
+    func searchYoutube(query: String, limit: Int = 20, searchType: String = "video") async throws -> ResolvedOnlineBatch {
+        let payload = SearchRequest(
+            query: query.trimmingCharacters(in: .whitespacesAndNewlines),
+            limit: min(max(limit, 1), 30),
+            search_type: searchType
+        )
+        return try await postBatch(path: "/api/app/search", body: payload, timeout: 60)
+    }
+
+    private func postBatch<T: Encodable>(path: String, body: T, timeout: TimeInterval) async throws -> ResolvedOnlineBatch {
+        guard let endpoint = URL(string: "\(baseURL)\(path)") else {
             throw NSError(domain: "TKMGOnline", code: 1, userInfo: [NSLocalizedDescriptionKey: "URL máy chủ không hợp lệ"])
         }
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
-        req.timeoutInterval = 120
+        req.timeoutInterval = timeout
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(ResolveRequest(url: url.trimmingCharacters(in: .whitespacesAndNewlines), force_playlist: forcePlaylist))
+        req.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let httpCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -81,7 +112,7 @@ final class OnlineMediaClient {
 
         let batch = try JSONDecoder().decode(ResolvedOnlineBatch.self, from: data)
         if batch.items.isEmpty {
-            throw NSError(domain: "TKMGOnline", code: 2, userInfo: [NSLocalizedDescriptionKey: "Không tìm thấy bài nào trong liên kết"])
+            throw NSError(domain: "TKMGOnline", code: 2, userInfo: [NSLocalizedDescriptionKey: "Không tìm thấy bài nào"])
         }
         return batch
     }
@@ -92,6 +123,7 @@ final class OnlineMediaClient {
         totalCount: Int,
         targetDir: URL,
         isFromPlaylist: Bool,
+        quality: String? = nil,
         onStatus: @escaping (String) -> Void
     ) async throws -> URL {
         guard let startURL = URL(string: "\(baseURL)/api/download") else {
@@ -103,10 +135,12 @@ final class OnlineMediaClient {
         startReq.timeoutInterval = 30
         startReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let padWidth = max(2, String(totalCount).count)
+        let sendQuality = (format == "video" && quality != nil && quality != "best") ? quality : nil
         let payload = DownloadRequest(
             url: track.url,
             format: format,
             title: track.title,
+            quality: sendQuality,
             prefix_index: isFromPlaylist ? track.index : nil,
             pad_width: isFromPlaylist ? padWidth : nil
         )

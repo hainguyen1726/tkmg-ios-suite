@@ -393,11 +393,29 @@ final class MediaLibraryStore: ObservableObject {
     func saveOnlinePlaylistToLibrary(name: String, tracks: [ResolvedOnlineTrack], asVideo: Bool) {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let plName = cleanName.isEmpty ? "Playlist Online" : cleanName
+        let itemIDs = registerOnlineTracks(tracks, fallbackAlbum: plName, asVideo: asVideo)
+        guard !itemIDs.isEmpty else { return }
+        createPlaylist(name: plName, initialItemIDs: itemIDs)
+        statusMessage = "Đã lưu Playlist Online \"\(plName)\" (\(itemIDs.count) bài)"
+    }
+
+    func addOnlineTracks(_ tracks: [ResolvedOnlineTrack], toPlaylist playlistID: String, fallbackAlbum: String, asVideo: Bool) {
+        let cleanAlbum = fallbackAlbum.trimmingCharacters(in: .whitespacesAndNewlines)
+        let albumName = cleanAlbum.isEmpty ? "Playlist Online" : cleanAlbum
+        let itemIDs = registerOnlineTracks(tracks, fallbackAlbum: albumName, asVideo: asVideo)
+        guard !itemIDs.isEmpty else { return }
+        addItems(itemIDs, toPlaylist: playlistID)
+        statusMessage = "Đã thêm \(itemIDs.count) bài vào Playlist"
+    }
+
+    private func registerOnlineTracks(_ tracks: [ResolvedOnlineTrack], fallbackAlbum: String, asVideo: Bool) -> [String] {
+        let playable = tracks.filter { !$0.isPlaylistItem }
         let now = Date().timeIntervalSince1970
         var newIDs: [String] = []
 
-        for t in tracks {
+        for t in playable {
             let streamURL = asVideo ? t.streamVideoURL : t.streamAudioURL
+            guard !streamURL.isEmpty else { continue }
             let id = "online:\(asVideo ? "v" : "a"):\(t.id):\(abs(streamURL.hashValue))"
             let padded = String(format: "%02d", t.index)
             let fileName = "\(padded) - \(t.title).\(asVideo ? "mp4" : "m4a")"
@@ -413,8 +431,8 @@ final class MediaLibraryStore: ObservableObject {
                 modifiedAt: now,
                 durationSec: t.duration,
                 title: t.title,
-                artist: t.uploader.isEmpty ? plName : t.uploader,
-                album: plName,
+                artist: t.uploader.isEmpty ? fallbackAlbum : t.uploader,
+                album: fallbackAlbum,
                 positionSec: 0,
                 isCompleted: false,
                 isFavorite: false,
@@ -425,9 +443,7 @@ final class MediaLibraryStore: ObservableObject {
             }
             newIDs.append(id)
         }
-
-        createPlaylist(name: plName, initialItemIDs: newIDs)
-        statusMessage = "Đã lưu Playlist Online \"\(plName)\" (\(newIDs.count) bài)"
+        return newIDs
     }
 
     func itemIDForDownloadedURL(_ fileURL: URL) -> String? {

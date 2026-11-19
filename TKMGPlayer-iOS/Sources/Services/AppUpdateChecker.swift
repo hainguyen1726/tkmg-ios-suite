@@ -97,9 +97,10 @@ final class AppUpdateChecker: ObservableObject {
     let localVersion: String
     let localBuildCode: Int
 
-    private let lastCheckKey = "tkmg_last_update_check_ts"
     private let skippedTagKey = "tkmg_skipped_update_tag"
-    private let autoIntervalSec: TimeInterval = 24 * 60 * 60
+    private let autoResumeIntervalSec: TimeInterval = 5 * 60
+    private var lastSessionCheckDate: Date?
+    private var dismissedSessionTag: String?
 
     init(appId: String) {
         self.appId = appId
@@ -109,8 +110,11 @@ final class AppUpdateChecker: ObservableObject {
     }
 
     func checkOnLaunchIfNeeded() {
-        let lastTs = UserDefaults.standard.double(forKey: lastCheckKey)
-        if Date().timeIntervalSince1970 - lastTs < autoIntervalSec {
+        checkOnResumeIfNeeded()
+    }
+
+    func checkOnResumeIfNeeded() {
+        if let last = lastSessionCheckDate, Date().timeIntervalSince(last) < autoResumeIntervalSec {
             return
         }
         Task {
@@ -138,16 +142,17 @@ final class AppUpdateChecker: ObservableObject {
                 return
             }
 
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
+            lastSessionCheckDate = Date()
 
             if let entry = AppUpdateLogic.parseAppEntry(from: data, appId: appId),
                AppUpdateLogic.isNewerUpdate(remote: entry, localVersion: localVersion, localBuildCode: localBuildCode) {
                 if manual {
                     UserDefaults.standard.removeObject(forKey: skippedTagKey)
+                    dismissedSessionTag = nil
                 }
                 let skippedTag = UserDefaults.standard.string(forKey: skippedTagKey)
                 bannerUpdate = entry
-                if manual || skippedTag != entry.versionTag {
+                if manual || (skippedTag != entry.versionTag && dismissedSessionTag != entry.versionTag) {
                     alertUpdate = entry
                 }
             } else {
@@ -173,6 +178,9 @@ final class AppUpdateChecker: ObservableObject {
     }
 
     func dismissAlert() {
+        if let upd = alertUpdate {
+            dismissedSessionTag = upd.versionTag
+        }
         alertUpdate = nil
     }
 }

@@ -46,6 +46,38 @@ final class TKMGPlayerTests: XCTestCase {
         XCTAssertEqual(decoded.type, "playlist")
         XCTAssertEqual(decoded.items.count, 1)
         XCTAssertEqual(decoded.items[0].index, 1)
+        XCTAssertFalse(decoded.items[0].isPlaylistItem)
+    }
+
+    func testDecodeSearchOnlineBatch() throws {
+        let json = """
+        {
+          "type": "search",
+          "search_type": "playlist",
+          "title": "Tìm kiếm: lofi",
+          "uploader": "YouTube Search",
+          "cover": "",
+          "count": 1,
+          "items": [
+            {
+              "index": 1,
+              "id": "PL123",
+              "title": "Lofi Chill Mix",
+              "uploader": "YouTube Playlist",
+              "duration": 0,
+              "thumbnail": "",
+              "url": "https://www.youtube.com/playlist?list=PL123",
+              "is_playlist": true,
+              "stream_audio_url": "",
+              "stream_video_url": ""
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ResolvedOnlineBatch.self, from: json)
+        XCTAssertEqual(decoded.type, "search")
+        XCTAssertEqual(decoded.searchType, "playlist")
+        XCTAssertTrue(decoded.items[0].isPlaylistItem)
     }
 
     func testAppUpdateLogicDetectsNewerPlayerIOSBuild() throws {
